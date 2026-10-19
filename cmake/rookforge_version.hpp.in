@@ -1,0 +1,2 @@
+#pragma once
+#define ROOKFORGE_VERSION "@PROJECT_VERSION@"

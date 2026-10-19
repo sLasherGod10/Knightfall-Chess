@@ -1,0 +1,12 @@
+build/
+cmake-build-*/
+out/
+*.exe
+*.dll
+*.obj
+*.o
+*.lib
+*.a
+.env
+.env.*
+!.env.example

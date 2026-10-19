@@ -1,0 +1,15 @@
+#include "rookforge/search.hpp"
+#include <algorithm>
+#include <cstdlib>
+#include <limits>
+#include <unordered_map>
+namespace rookforge { namespace {
+constexpr int values[]={0,100,320,330,500,900,20000};
+struct Entry{int depth,score,flag;Move best;};
+struct State{std::chrono::steady_clock::time_point end;const std::atomic_bool* cancel;std::uint64_t nodeLimit{},nodes{};std::unordered_map<std::uint64_t,Entry> table;bool stop()const{return(cancel&&cancel->load())||(nodeLimit&&nodes>=nodeLimit)||std::chrono::steady_clock::now()>=end;}};
+int eval(const Board& b){int s=0;for(int i=0;i<64;++i){int p=static_cast<int>(b.at(i));if(p)s+=(p>0?1:-1)*values[std::abs(p)];}return b.turn()==Color::White?s:-s;}
+int quiesce(Board& b,int alpha,int beta,int qdepth,State& st){if(st.stop())return 0;++st.nodes;bool check=b.inCheck(b.turn());if(!check){int stand=eval(b);if(stand>=beta)return beta;if(stand>alpha)alpha=stand;if(qdepth<=0)return alpha;}if(qdepth<=-4)return eval(b);auto moves=b.legalMoves();if(moves.empty())return check?-30000-qdepth:alpha;if(qdepth==0)return alpha;for(auto m:moves){if(!check&&b.at(m.to)==Piece::Empty&&m.promotion==Piece::Empty)continue;Undo u;b.makeMove(m,u);int score=-quiesce(b,-beta,-alpha,qdepth-1,st);b.unmakeMove(m,u);if(st.stop())return 0;if(score>=beta)return beta;if(score>alpha)alpha=score;}return alpha;}
+int negamax(Board& b,int d,int a,int beta,State& st){if(st.stop())return 0;++st.nodes;int original=a;auto found=st.table.find(b.hash());if(d>0&&found!=st.table.end()&&found->second.depth>=d){auto e=found->second;if(e.flag==0)return e.score;if(e.flag<0&&e.score<=a)return e.score;if(e.flag>0&&e.score>=beta)return e.score;}auto moves=b.legalMoves();if(moves.empty())return b.inCheck(b.turn())?-30000-d:0;if(d==0)return quiesce(b,a,beta,8,st);std::stable_sort(moves.begin(),moves.end(),[&](Move x,Move y){auto order=[&](Move m){int cap=static_cast<int>(b.at(m.to));return (found!=st.table.end()&&m==found->second.best?100000:0)+(cap?1000+values[std::abs(cap)]:0)+(m.promotion!=Piece::Empty?800:0);};return order(x)>order(y);});int best=-31000;Move bestMove=moves.front();for(auto m:moves){Undo u;b.makeMove(m,u);int score=-negamax(b,d-1,-beta,-a,st);b.unmakeMove(m,u);if(st.stop())return 0;if(score>best){best=score;bestMove=m;}a=std::max(a,score);if(a>=beta)break;}int flag=best<=original?-1:(best>=beta?1:0);st.table[b.hash()]=Entry{d,best,flag,bestMove};return best;}
+}
+SearchResult search(Board b,int depth,std::chrono::milliseconds limit,const std::atomic_bool* cancel,std::uint64_t nodeLimit){SearchResult result{};auto moves=b.legalMoves();if(moves.empty())return result;result.best=moves.front();auto now=std::chrono::steady_clock::now();auto end=limit==std::chrono::milliseconds::max()?std::chrono::steady_clock::time_point::max():now+limit;State st{end,cancel,nodeLimit};for(int d=1;d<=std::max(1,depth);++d){int best=-31000;Move bm=result.best;for(auto m:moves){Undo u;b.makeMove(m,u);int score=-negamax(b,d-1,-31000,31000,st);b.unmakeMove(m,u);if(st.stop())break;if(score>best){best=score;bm=m;}}if(st.stop())break;result.best=bm;result.score=best;result.depth=d;}result.nodes=st.nodes;return result;}
+}

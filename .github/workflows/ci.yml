@@ -1,0 +1,37 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Configure
+        run: cmake -S . -B build -DCHESS_BUILD_GUI=OFF
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package Windows CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -BuildDir build-package
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && success()
+        with:
+          name: RookForge-1.0.0-windows-x64
+          path: dist/RookForge-1.0.0-windows-x64.zip
+  linux-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Configure with sanitizers
+        run: cmake -S . -B build-sanitize -DCHESS_BUILD_GUI=OFF -DCHESS_SANITIZE=ON
+      - name: Build
+        run: cmake --build build-sanitize --config Debug
+      - name: Test
+        run: ctest --test-dir build-sanitize --output-on-failure
